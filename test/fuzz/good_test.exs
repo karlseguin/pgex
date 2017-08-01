@@ -2,7 +2,7 @@
 defmodule PgEx.Tests.Fuzz.Good do
   use PgEx.Tests.Base
 
-  @columns [:int4, :uuid]
+  @columns [:bool, :int2, :int4, :int8, :uuid]
 
   test "fuzz the good" do
     for _ <- (1..100) do
@@ -50,12 +50,6 @@ defmodule PgEx.Tests.Fuzz.Good do
     Map.new(Enum.zip(columns, values))
   end
 
-  defp create_value(:int4), do: rand(-2147483648, 2147483647)
-
-  defp create_value(:uuid) do
-    PgEx.Types.UUID.decode(16, :crypto.strong_rand_bytes(16))
-  end
-
   defp assert_rows(rows) do
     for {id, row} <- rows do
       assert_row(id, row)
@@ -86,7 +80,13 @@ defmodule PgEx.Tests.Fuzz.Good do
         refute Map.has_key?(row, column)
       end
     end
-
   end
 
+  defp create_value(:bool), do: rand(2) == 2
+  defp create_value(:int2), do: rand(-32768, 32767)
+  defp create_value(:int4), do: rand(-2147483648, 2147483647)
+  defp create_value(:int8), do: rand(-9223372036854775808, 9223372036854775807)
+  defp create_value(:uuid) do
+    PgEx.Types.UUID.decode(16, :crypto.strong_rand_bytes(16))
+  end
 end

@@ -70,6 +70,9 @@ defmodule PgEx.Connection.Startup do
   defp load_types(conn) do
     alias PgEx.Types
     types = %{
+      16 => Types.Bool,
+      20 => Types.Int8,
+      21 => Types.Int2,
       23 => Types.Int4,
       2950 => Types.UUID,
     }
