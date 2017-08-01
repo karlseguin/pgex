@@ -72,12 +72,18 @@ defmodule PgEx.Connection.Prepared do
 
     with {?1, nil} <- Connection.send_recv_message(conn, parse_describe_sync),
          {?t, parameters} <- Connection.recv_message(conn),
-         {type, columns} when type in [?T, ?n] <- Connection.recv_message(conn),
-         prepared <- %__MODULE__{},
-         {:ok, prepared} <- extract_column_info(conn, prepared, columns),
-         {:ok, prepared} <- extract_parameter_info(conn, prepared, sname, parameters)
+         {type, columns} when type in [?T, ?n] <- Connection.recv_message(conn)
     do
-      {:ok, prepared}
+      {columns, decoders, suffix} = extract_column_info(conn, columns)
+      {encoders, prefix} = extract_parameter_info(conn, sname, parameters)
+
+      {:ok, %__MODULE__{
+        columns: columns,
+        encoders: encoders,
+        decoders: decoders,
+        bind_prefix: prefix,
+        bind_suffix: suffix,
+      }}
     end
   end
 
@@ -86,26 +92,23 @@ defmodule PgEx.Connection.Prepared do
   # of the message right here (how excitting!) because we're told the type of
   # each column. While we're at it, we might as well remember all those column
   # names and all of the modules we'll need to decode the actual information.
-  @spec extract_column_info(Connection.t, t, binary | nil) :: {:ok, Prepared.t} | {:error, any}
 
   # For a statement that returns no data, we get a NoData message from the
   # server and the message is nil.
-  defp extract_column_info(_conn, prepared, nil) do
-    {:ok, %Prepared{prepared | columns: [], decoders: [], bind_suffix: <<0, 0>>}}
+  @spec extract_column_info(Connection.t, binary | nil) :: {[String.t], [module], binary}
+  defp extract_column_info(_conn, nil) do
+    {[], [], <<0, 0>>}
   end
 
-  defp extract_column_info(conn, prepared, <<count::big-16, data::binary>>) do
-    case do_extract_column_info(conn.types, data, [], [], <<>>) do
-      {:ok, columns, decoders, formats} ->
-        suffix = <<count::big-16, formats::binary>>
-        {:ok, %Prepared{prepared | columns: columns, decoders: decoders, bind_suffix: suffix}}
-      err -> err
-    end
+  defp extract_column_info(conn, <<count::big-16, data::binary>>) do
+    {columns, decoders, formats} = do_extract_column_info(conn.types, data, [], [], <<>>)
+    suffix = <<count::big-16, formats::binary>>
+    {columns, decoders, suffix}
   end
 
-  @spec do_extract_column_info(map, binary, [String.t], [module], binary) :: {:ok, [String.t], [module], binary}
+  @spec do_extract_column_info(map, binary, [String.t], [module], binary) :: {[String.t], [module], binary}
   defp do_extract_column_info(_types, <<>>, columns, decoders, formats) do
-    {:ok, Enum.reverse(columns), Enum.reverse(decoders), formats}
+    {Enum.reverse(columns), Enum.reverse(decoders), formats}
   end
 
   defp do_extract_column_info(types, data, columns, decoders, formats) do
@@ -124,11 +127,11 @@ defmodule PgEx.Connection.Prepared do
   # build the entire prefix, including the portal name (always empty for now!)
   # and the stored procedure name. We can also remmeber the actual modules we'll
   # need to encode those pesky parameters.
-  @spec extract_parameter_info(map, binary, [module], binary) :: {:ok, t} | {:error, any}
-  defp extract_parameter_info(conn, prepared, sname, <<count::big-16, data::binary>>) do
+  @spec extract_parameter_info(Connection.t, binary, binary) :: {[module], binary}
+  defp extract_parameter_info(conn, sname, <<count::big-16, data::binary>>) do
     {encoders, formats} = do_extract_parameter_info(conn.types, data, [], <<>>)
     prefix = <<0, sname::binary, 0, count::big-16, formats::binary, count::big-16>>
-    {:ok, %Prepared{prepared | encoders: encoders, bind_prefix: prefix}}
+    {encoders, prefix}
   end
 
   @spec do_extract_parameter_info(map, binary, [module], binary) :: {[module], binary}

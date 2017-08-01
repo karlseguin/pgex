@@ -30,48 +30,43 @@ defmodule PgEx.Error do
     code: nil | pos_integer,
   }
 
-  # There are 5 types of errors.
   # 1 - Error messages returned by the database server.
   @doc false
-  @spec build(any) :: {:error, t}
+  @spec build(any) :: t
   def build({?E, message}) do
     pg = parse_pg_error(message, [])
-    error = %__MODULE__{
+    %__MODULE__{
       pg: pg,
       code: pg[:code],
       message: pg[:message],
     }
-    {:error, error}
   end
 
   @doc false
-  # 2 - We're trying to handle this error twice. That shouldn't happen, but
-  #     the way things currently stand, I'm pretty sure it can. Should fix that (TODO)
-  def build({:error, %__MODULE__{}} = err) do
-    err
-  end
-
-  @doc false
-  # 3 - Some piece of code that returned an {:error, any}. So far, these most
+  # 2 - Some piece of code that returned an {:error, any}. So far, these most
   #     likely correspond to networking issues (:timeout, :closed, ...) on these
   #     socket we have open to  communicate with the server.
   def build({:error, message}) do
-    {:error, %__MODULE__{message: message}}
+    %__MODULE__{message: message}
   end
 
   @doc false
-  # 4 - An unexpected server response. For example, we sent a Bind message and
+  # 3 - An unexpected server response. For example, we sent a Bind message and
   #     only handle a BindComplete message. Anything else will end up here.
   #     We check for an Error (?E) response first and special handle that.
   #     These shouldn't happen and likely represent a bug in the driver.
   def build({type, _message}) when type in [65..128] do
-    build({:error, "unexpected response type (likely a bug in pgex, please report): #{<<type::utf8>>}"})
+    %__MODULE__{
+      message: "unexpected response type (likely a bug in pgex, please report): #{<<type::utf8>>}"
+    }
   end
 
   @doc false
-  # 5 - Anything else.
+  # 4 - Anything else.
   def build(unknown) do
-    build({:error, "unknown error: #{inspect unknown}"})
+    %__MODULE__{
+      message: "unknown error: #{inspect unknown}"
+    }
   end
 
   @fields %{

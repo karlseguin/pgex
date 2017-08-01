@@ -1,75 +1,141 @@
+# Connections can exist but not be initialized. An uninitialized connection
+# is one with a nil socket. This can happen if the original authentication fails,
+# if the connection is closed, or on certain errors. We keep this connection in
+# the pool and will attempt to re-establish it before any queries are run.
 defmodule PgEx.Connection do
   @moduledoc false
 
   use GenServer
-  alias PgEx.Error
+  require Logger
+  alias PgEx.{Connection, Error}
   alias PgEx.Connection.{Prepared, Startup}
 
   defstruct [
-    :socket, :timeout, :types
+     :config, :socket, :timeout, :types,
   ]
 
   @type t :: %__MODULE__{
-    socket: port,
+    socket: port | nil,
+    config: Keyword.t,
     timeout: non_neg_integer,
-    types: %{required(non_neg_integer) => module}
+    types: %{required(non_neg_integer) => module} |  nil,
   }
 
-  @type received :: {byte, binary} | {:error, Error.t}
+  @type received :: {byte, binary | nil} | {:error, :inet.posix}
 
   def start_link(config) do
     GenServer.start_link(__MODULE__, config, [])
   end
 
-  @spec init(keyword) :: {:ok, t} | {:error, Error.t}
+  @spec init(keyword) :: {:ok, t}
   def init(config) do
     port = Keyword.get(config, :port, System.get_env("PGPORT") || 5432)
     host = Keyword.get(config, :host, System.get_env("PGHOST") || {127, 0, 0, 1})
+    username = Keyword.get(config, :username, System.get_env("PGUSER") || System.get_env("USER"))
+    database = Keyword.get(config, :database, System.get_env("PGDATABASE") || username)
 
     host = case is_binary(host) do
-      true -> String.to_charlist(host)
       false -> host
+      true -> String.to_charlist(host)
     end
 
-    timeout = Keyword.get(config, :connect_timeout, 5000)
-    case :gen_tcp.connect(host, port, [:binary, active: false], timeout) do
-      {:ok, socket} -> Startup.init(socket, config)
-      err -> Error.build(err)
+    # re-store our varibles in th config so that we don't need to keep cheking against defaults
+    config = Keyword.merge(config, [
+      port: port,
+      host: host,
+      username: username,
+      database: database,
+    ])
+
+    conn = %__MODULE__{
+      config: config,
+      timeout: Keyword.get(config, :timeout, 10_000),
+    }
+
+    conn = case Startup.init(conn) do
+      {:ok, conn} -> conn
+      {:error, err} ->
+        Logger.error("failed to connect to #{inspect host}: #{inspect err}")
+        conn
     end
+
+    {:ok, conn}
   end
 
   # Executes an unammed prepared statement
+  @spec handle_call({:query, iodata, [any]}, GenServer.from,  Connection.t) :: {:ok, Result.t} | {:error, Error.t}
   def handle_call({:query, sql, values}, _from, conn) do
-    {r, conn} = case wait_for_ready(conn) do
-      {:ok, conn} ->
-        case do_query(conn, sql, values) do
-          {:ok, result} -> {{:ok, result}, conn}
-          err -> {handle_error(conn, err), conn}
-        end
-      err -> {err, conn}
-    end
-    {:reply, r, conn}
+    {status, {value, conn}} = do_query(ensure_initialized(conn), sql, values)
+    {:reply, {status, value}, conn}
   end
 
-  defp do_query(conn, sql, values) do
+  defp do_query({:ok, conn}, sql, values) do
+    case do_query_ready(conn, sql, values) do
+      {:ok, _} = ok -> ok
+      err -> handle_query_error(conn, err)
+    end
+  end
+
+  defp do_query({:error, _} = err, _sql, _values), do: err
+
+  defp do_query_ready(conn, sql, values) do
     with {:ok, prepared} <- Prepared.create(conn, "", sql),
          {:ok, conn} <- wait_for_ready(conn),
          {:ok, result} <- Prepared.bind_and_execute(conn, prepared, values)
     do
-      {:ok, result}
-    else
-      err -> err
+      {:ok, {result, conn}}
     end
   end
 
-  @spec wait_for_ready(t) :: {:ok, t} | {:error, any}
-  def wait_for_ready(conn) do
+  @spec ensure_initialized(t) :: {:ok, t} | {:error, any}
+  defp ensure_initialized(%{socket: nil} = conn) do
+    case Startup.init(conn) do
+      {:ok, conn} -> ensure_initialized(conn)
+      err -> {:error, {Error.build(err), conn}}
+    end
+  end
+
+  defp ensure_initialized(conn) do
+    case wait_for_ready(conn) do
+      {:ok, _} = ok -> ok
+      {:not_ready, err, conn} -> {:error, {Error.build(err), conn}}
+    end
+  end
+
+  defp wait_for_ready(conn) do
     case recv_message(conn) do
       {?Z, _} -> {:ok, conn}
       {?S, _} -> wait_for_ready(conn) #TODO
       {?K, _} -> wait_for_ready(conn) #TODO
-      other -> handle_error(conn, other)
+      err ->
+        # Whatever happens here, it isn't good. So we'll un-initialize this
+        # connection. (The best case is that something timed out, which coukld
+        # be recoverable, but, for now at least, let's abandon all hope of
+        # doing this query)
+        :gen_tcp.close(conn.socket)
+        {:not_ready, err, %Connection{conn | socket: nil}}
     end
+  end
+
+  defp handle_query_error(conn, err) do
+    case err do
+      {:not_ready, err, conn} -> {:error, {Error.build(err), conn}}  # already been closed/uninitialized
+      err ->
+        # TODO: are there errors we can recover from without uninitializing the
+        # connection? Timeouts? (but then there might be junk on the socket next
+        # time we try to use it...tricky). And, if we got a response we weren't
+        # expecting, is our state really good enough to try and execute stuff?
+        if conn.socket != nil do
+          :gen_tcp.close(conn.socket)
+        end
+        {:error, {Error.build(err), %Connection{conn | socket: nil}}}
+    end
+  end
+
+  @doc false
+  @spec build_message(byte, binary) :: binary
+  def build_message(type, payload) do
+    <<type, (byte_size(payload)+4)::big-32, payload::binary>>
   end
 
   # Sends the message and waits for a response
@@ -88,38 +154,27 @@ defmodule PgEx.Connection do
   # case we don't need to issue a second read.
   @spec recv_message(t) :: received
   def recv_message(conn) do
-    socket = conn.socket
-    timeout = conn.timeout
-    case recv_n(socket, 5, timeout) do
-      {:ok, <<type, length::big-32>>} ->
-        case length == 4 do
-          true -> {type, nil}
-          false ->
-            case recv_n(socket, length - 4, timeout) do
-              {:ok, message} -> {type, message}
-              err -> err
-            end
-        end
+    case recv_n(conn.socket, 5, conn.timeout) do
+      {:ok, <<type, length::big-32>>} -> read_message_body(conn, type, length - 4)
       err -> err
     end
   end
 
-  @spec recv_n(port, pos_integer, non_neg_integer) :: {:ok, iodata} | {:error, :inet.posix}
+  @spec read_message_body(t, byte, non_neg_integer) :: received
+  defp read_message_body(_conn, type, 0), do: {type, nil}
+
+  defp read_message_body(conn, type, length) do
+    case recv_n(conn.socket, length, conn.timeout) do
+      {:ok, message} -> {type, message}
+      err -> err
+    end
+  end
+
+  @spec recv_n(port, pos_integer, non_neg_integer) :: {:ok, binary} | {:error, :inet.posix}
   defp recv_n(socket, n, timeout) do
-    :gen_tcp.recv(socket, n, timeout)
-  end
-
-  @doc false
-  @spec handle_error(t, any) :: {:error, Error.t}
-  def handle_error(conn, error) do
-    # TODO: many errors probably don't need to result in killing the connection
-    :gen_tcp.close(conn.socket)
-    Error.build(error)
-  end
-
-  @doc false
-  @spec build_message(byte, binary) :: binary
-  def build_message(type, payload) do
-    <<type, (byte_size(payload)+4)::big-32, payload::binary>>
+    case :gen_tcp.recv(socket, n, timeout) do
+      {:ok, data} -> {:ok, data}
+      err -> err
+    end
   end
 end

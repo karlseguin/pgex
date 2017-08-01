@@ -4,34 +4,38 @@
 # manageable to split it up.
 defmodule PgEx.Connection.Startup do
   @moduledoc false
-  alias PgEx.{Connection, Error}
+  alias PgEx.Connection
 
   # TODO: load from .pgpass
 
-  @spec init(port, keyword) :: {:ok, Connection.t} | {:error, Error.t}
-  def init(socket, config) do
-    timeout = Keyword.get(config, :timeout, 5000)
-    username = Keyword.get(config, :username, System.get_env("PGUSER") || System.get_env("USER"))
-    database = Keyword.get(config, :database, System.get_env("PGDATABASE") || username)
+  @spec init(Conn.t) :: {:ok, Connection.t} | {:error, any}
+  def init(conn) do
+    config = conn.config
+    port = Keyword.get(config, :port)
+    host = Keyword.get(config, :host)
+    username = Keyword.get(config, :username)
+    database = Keyword.get(config, :database)
+    timeout = Keyword.get(config, :connect_timeout, 5000)
 
-    # incase we used a default, for when we authenticate
-    config = Keyword.put(config, :username, username)
-
-    # Startup message is special, it has no type, so we can't use send_recv_message
-    payload = <<0, 3, 0, 0, "user", 0, username::binary, 0, "database", 0, database::binary, 0, 0>>
-    with :ok <- :gen_tcp.send(socket, <<(byte_size(payload)+4)::big-32, payload::binary>>),
-         conn <- %Connection{socket: socket, timeout: timeout},
-         :ok <- authenticate(conn, Connection.recv_message(conn), config),
-         {:ok, conn} <- load_types(conn)
-    do
-      {:ok, conn}
-    else
-      {:error, %Error{}} = err -> err
-      err -> Error.build(err)
+    case :gen_tcp.connect(host, port, [:binary, active: false], timeout) do
+      {:error, err} -> {:error, err}
+      {:ok, socket} ->
+        conn = %Connection{conn | socket: socket}
+        payload = <<0, 3, 0, 0, "user", 0, username::binary, 0, "database", 0, database::binary, 0, 0>>
+        with :ok <- :gen_tcp.send(socket, <<(byte_size(payload)+4)::big-32, payload::binary>>),
+             :ok <- authenticate(socket, Connection.recv_message(conn), config),
+             {:ok, conn} <- load_types(conn)
+        do
+          {:ok, conn}
+        else
+          err ->
+            :gen_tcp.close(socket)
+            err
+        end
     end
   end
 
-  @spec authenticate(Connection.t, Connection.received, keyword) :: :ok | {:error, Error.t}
+  @spec authenticate(Connection.t, Connection.received, keyword) :: :ok | {:error, any}
   # authenticated
   defp authenticate(_conn, {?R, <<0, 0, 0, 0>>}, _config), do: :ok
 
@@ -45,16 +49,13 @@ defmodule PgEx.Connection.Startup do
     send_password(conn, Base.encode16(hash, case: :lower))
   end
 
-  defp authenticate(conn, {?R, message}, _config) do
-    :gen_tcp.close(conn.socket)
+  defp authenticate(_conn, {?R, message}, _config) do
     {:error, "unsupported authentication type: #{inspect message}"}
   end
 
-  defp authenticate(conn, message, _config) do
-    Connection.handle_error(conn, message)
-  end
+  defp authenticate(_conn, unexpected, _config), do: unexpected
 
-  @spec send_password(Connection.t, String.t) :: :ok | {:error, Error.t}
+  @spec send_password(Connection.t, String.t) :: :ok | {:error, any}
   defp send_password(conn, password) do
     message = Connection.build_message(?p, <<password::binary, 0>>)
     case Connection.send_recv_message(conn, message) do
@@ -72,7 +73,7 @@ defmodule PgEx.Connection.Startup do
       23 => Types.Int4,
       2950 => Types.UUID,
     }
-    {:ok, %{conn | types: types}}
+    {:ok, %Connection{conn | types: types}}
   end
 
 end
