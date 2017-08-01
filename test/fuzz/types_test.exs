@@ -1,5 +1,34 @@
 # This fuzzer always expects good results
-defmodule PgEx.Tests.Fuzz.Good do
+#
+# This test works against the fuzz table (see sql/2.fuzz.sql). This is a table
+# with a nullable column for every known type in addition to a serial id column.
+# The test does N iterations, and for each iteration we insert M random rows.
+# Only valid values are inserted, including null.
+#
+# We record the values inserted per row for each id and store that in a map. It
+# will look something like:
+#
+#    %{
+#      1 => %{int4: -322, text: "leto"},
+#      2 => %{bool: true, uuid: "d9851f1c-e7e7-4ec4-806c-7d0880049f6b"},
+#    }
+#
+# Any field not listed is null. This first step ensures that we're able to encode
+# values.
+#
+# Next, we take this data and issue selects against each value:
+#
+#    select id, int4 from fuzz where int4 = $1 and id = $2, [-322, 1]
+#
+# We make sure that the returned result equals what we expect:
+#
+#    [[1, -322]] = result.rows
+#
+# This second part makes sure that our decoders work.
+#
+# Finally, we issue selects where SOME_RANDOM_COLUMN is null and verify that all
+# the returned rows should, in fact, have a null column.
+defmodule PgEx.Tests.Fuzz.Types do
   use PgEx.Tests.Base
 
   @columns [:bool, :int2, :int4, :int8, :uuid]
@@ -19,8 +48,7 @@ defmodule PgEx.Tests.Fuzz.Good do
   defp insert_rows() do
     assert PgEx.query!("truncate table fuzz", []).affected == :truncate  #TODO: use a named prepared statement here
 
-    # number_of_rows = rand(10)
-    number_of_rows = 1
+    number_of_rows = rand(10)
     Enum.reduce((1..number_of_rows), %{}, fn id, rows ->
       Map.put(rows, id, insert_row(id))
     end)
@@ -60,7 +88,7 @@ defmodule PgEx.Tests.Fuzz.Good do
   defp assert_row(id, row) do
     row = Enum.filter(row, fn {_column, value} -> value end)
     for {column, value} <- row do
-      {:ok, result} = PgEx.query("select id, #{column} from fuzz where #{column} = $1", [value])
+      {:ok, result} = PgEx.query("select id, #{column} from fuzz where #{column} = $1 and id = $2", [value, id])
       assert result.affected == 1
 
       [[actual_id, actual_value]] = result.rows
