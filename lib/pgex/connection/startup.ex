@@ -74,6 +74,9 @@ defmodule PgEx.Connection.Startup do
       20 => Types.Int8,
       21 => Types.Int2,
       23 => Types.Int4,
+      25 => Types.Text,
+      700 => Types.Float4,
+      701 => Types.Float8,
       2950 => Types.UUID,
     }
     {:ok, %Connection{conn | types: types}}

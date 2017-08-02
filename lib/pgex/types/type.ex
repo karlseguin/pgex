@@ -1,5 +1,7 @@
 defmodule PgEx.Type do
+  # just a friendly name used in error messages and such
   @callback name() :: binary
+
   @callback format() :: binary
   @callback encode(any) :: {:ok, iodata} | :error
   @callback decode(non_neg_integer, binary) :: {:ok, any} | :error

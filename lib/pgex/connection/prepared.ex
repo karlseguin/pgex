@@ -204,7 +204,9 @@ defmodule PgEx.Connection.Prepared do
 
   # data complete
   defp read_rows(_conn, prepared, _decoders, {?C, tag}, rows) do
+    rows = Enum.reverse(rows)
     result = %PgEx.Result{
+      it: rows,
       rows: rows,
       columns: prepared.columns,
       affected: extract_rows_from_tag(tag),

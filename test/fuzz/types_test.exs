@@ -1,5 +1,3 @@
-# This fuzzer always expects good results
-#
 # This test works against the fuzz table (see sql/2.fuzz.sql). This is a table
 # with a nullable column for every known type in addition to a serial id column.
 # The test does N iterations, and for each iteration we insert M random rows.
@@ -31,7 +29,7 @@
 defmodule PgEx.Tests.Fuzz.Types do
   use PgEx.Tests.Base
 
-  @columns [:bool, :int2, :int4, :int8, :uuid]
+  @columns [:bool, :int2, :int4, :int8, :uuid, :text, :float4, :float8]
 
   test "fuzz the good" do
     for _ <- (1..100) do
@@ -90,10 +88,14 @@ defmodule PgEx.Tests.Fuzz.Types do
     for {column, value} <- row do
       {:ok, result} = PgEx.query("select id, #{column} from fuzz where #{column} = $1 and id = $2", [value, id])
       assert result.affected == 1
-
       [[actual_id, actual_value]] = result.rows
+
       assert actual_id == id
-      assert actual_value == value
+      cond do
+        value in [:NaN, :inf, :"-inf"] -> assert actual_value == value
+        column in ["float4", "float8"] -> assert_in_delta actual_value, value, 0.0000001 # not sure what this delta should be
+        true -> assert actual_value == value
+      end
     end
   end
 
@@ -114,6 +116,17 @@ defmodule PgEx.Tests.Fuzz.Types do
   defp create_value(:int2), do: rand(-32768, 32767)
   defp create_value(:int4), do: rand(-2147483648, 2147483647)
   defp create_value(:int8), do: rand(-9223372036854775808, 9223372036854775807)
+  defp create_value(:text), do: PgEx.Tests.Strings.random()
+  defp create_value(:float4) do # not sure how to generate good fake floats
+    case rand(10) do
+      1 -> :NaN
+      2 -> :inf
+      3 -> :"-inf"
+      _ -> :rand.uniform()
+    end
+  end
+  defp create_value(:float8), do: create_value(:float4)  #again, not sure how to generate good data
+
   defp create_value(:uuid) do
     PgEx.Types.UUID.decode(16, :crypto.strong_rand_bytes(16))
   end
