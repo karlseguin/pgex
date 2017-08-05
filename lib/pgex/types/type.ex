@@ -40,7 +40,42 @@ defmodule PgEx.Types.Bin do
       def name(), do: unquote(name)
       def format(), do: <<0, 1>>
 
+      # The binary format for arrays is:
+      #   number_of_dimesions::big-32, are_there_null::big-32, oid_of_values::big-32
+      #
+      # Followed by the following 64 bits for each dimension:
+      #   number_of_values::big-32, lower_bound::big-32
+      #
+      # Followed by the length-prefixed values:
+      #  length1::big-32, value1::(length1), ... lengthN::big-32, valueN::(lengthN)
+      #
+      # The key to how we decode is to build an array of the number_of_values.
+      # If we had {{{1, 2}, {3, 4}}, {{5, 6}, {7, 8}}, {{9, 10}, {11, 12}}}
+      # our sizes would be: [3, 2, 2]
+      #
+      # We build the structure recusively. Somethig like:
+      #  3  -> {1, 2}, {3, 4}
+      #    2 -> {1, 2}
+      #      2 -> 1
+      #      1 -> 2
+      #    1 -> {3, 4}
+      #      2 -> 3
+      #      1 -> 4
+      #
+      #  2  -> {5, 6}, {7, 8}
+      #    2 -> {5, 6}
+      #      2 -> 5
+      #      1 -> 6
+      #    1 -> {7, 8}
+      #      2 -> 7
+      #      1 -> 8
+      #
+      #  1 -> {{9, 10}, {11, 12}}}
+      #     ....
+      #
+      # I'm not sure if that helps.
       defmodule unquote(arr) do
+        @moduledoc false
         def name(), do: unquote(arr_name) <> "[]"
         def format(), do: <<0, 1>>
 
