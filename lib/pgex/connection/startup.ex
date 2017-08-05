@@ -70,21 +70,22 @@ defmodule PgEx.Connection.Startup do
   defp load_types(conn) do
     alias PgEx.Types
     types = %{
-      16 => Types.Bool,
-      20 => Types.Int8,
-      21 => Types.Int2,
-      23 => Types.Int4,
-      25 => Types.Text,
-      700 => Types.Float4,
-      701 => Types.Float8,
-      1000 => Types.Bool.Array,
-      1005 => Types.Int2.Array,
-      1007 => Types.Int4.Array,
-      1009 => Types.Text.Array,
-      1021 => Types.Float4.Array,
-      1022 => Types.Float4.Array,
-      2950 => Types.UUID,
-      2951 => Types.UUID.Array,
+      16 => {0, Types.Bool},
+      20 => {0, Types.Int8},
+      21 => {0, Types.Int2},
+      23 => {0, Types.Int4},
+      25 => {0, Types.Text},
+      700 => {0, Types.Float4},
+      701 => {0, Types.Float8},
+      1000 => {16, Types.Bool.Array},
+      1005 => {21, Types.Int2.Array},
+      1007 => {23, Types.Int4.Array},
+      1009 => {25, Types.Text.Array},
+      1016 => {20, Types.Int8.Array},
+      1021 => {700, Types.Float4.Array},
+      1022 => {701, Types.Float8.Array},
+      2950 => {0, Types.UUID},
+      2951 => {2950, Types.UUID.Array},
     }
     {:ok, %Connection{conn | types: types}}
   end

@@ -3,7 +3,7 @@ defmodule PgEx.Type do
   @callback name() :: binary
 
   @callback format() :: binary
-  @callback encode(any) :: {:ok, iodata} | :error
+  @callback encode(non_neg_integer, any) :: {:ok, iodata} | :error
   @callback decode(non_neg_integer, binary) :: {:ok, any} | :error
 
   def get_name(module) do
@@ -115,8 +115,36 @@ defmodule PgEx.Types.Bin do
           decode_array(count - 1, data, [nil | arr])
         end
         defp decode_array(count, <<length::big-32, value::bytes-size(length), data::binary>>, arr) do
+          # TODO: handle error (easiest to raise and catch in the outer decode function???)
           arr = [unquote(module).decode(length, value) | arr]
           decode_array(count - 1, data, arr)
+        end
+
+        def encode(type, []), do: <<0, 0, 0, 0, 0, 0, 0, 0, type::big-32>>
+
+        def encode(type, arr) do
+          {size, sizes, values} = encode_dimensions(arr, true, 0, [], [])
+          [<<(length(sizes)+1)::big-32, 0, 0, 0, 0, type::big-32, size::32, 0, 0, 0, 1>>, sizes, Enum.reverse(values)]
+        end
+
+        defp encode_dimensions([], _first, size, sizes, values), do: {size, sizes, values}
+        defp encode_dimensions([peek | _other] = arr, first, _size, sizes, values) when not is_list(peek) do
+          {size, values} = Enum.reduce(arr, {0, values}, fn
+            nil, {size, values} -> {size + 1, [<<255, 255, 255, 255>> | values]}
+            value, {size, values} ->
+              encoded = unquote(module).encode(0, value) # TODO: ERROR
+              {size + 1, [[<<:erlang.iolist_size(encoded)::big-32, encoded::binary>>] | values]}
+          end)
+          {size, sizes, values}
+        end
+
+        defp encode_dimensions([arr | other], first, size, sizes, values) do
+          {s, sizes, values} = encode_dimensions(arr, first, 0, sizes, values)
+          sizes = case first do
+            true -> [<<s::big-32, 0, 0, 0, 1>> | sizes]
+            false -> sizes
+          end
+          encode_dimensions(other, false, size + 1, sizes, values)
         end
       end
     end

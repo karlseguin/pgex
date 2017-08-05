@@ -2,9 +2,8 @@ defmodule PgEx.Types.UUID do
   use PgEx.Types.Bin
   import Bitwise, only: [bsl: 2, bor: 2]
 
-  def encode(<<value::bytes-size(16)>>), do: value
-
-  def encode(<<a1, a2, a3, a4, a5, a6, a7, a8, ?-, b1, b2, b3, b4, ?-, c1, c2, c3, c4, ?-, d1, d2, d3, d4, ?-, e1, e2, e3, e4, e5, e6, e7, e8, e9, eA, eB, eC>>) do
+  def encode(_type, <<value::bytes-size(16)>>), do: value
+  def encode(_type, <<a1, a2, a3, a4, a5, a6, a7, a8, ?-, b1, b2, b3, b4, ?-, c1, c2, c3, c4, ?-, d1, d2, d3, d4, ?-, e1, e2, e3, e4, e5, e6, e7, e8, e9, eA, eB, eC>>) do
     try do
       <<
         encode_byte(a1, a2), encode_byte(a3, a4), encode_byte(a5, a6), encode_byte(a7, a8),
@@ -16,8 +15,7 @@ defmodule PgEx.Types.UUID do
       _ -> :error
     end
   end
-
-  def encode(_wrong) do
+  def encode(_type, _wrong) do
     :error
   end
 

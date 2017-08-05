@@ -1,8 +1,8 @@
 defmodule PgEx.Types.Float4 do
   use PgEx.Types.Bin
 
-  def encode(value) when is_number(value), do: <<value::float-32>>
-  def encode(value) do
+  def encode(_type, value) when is_number(value), do: <<value::float-32>>
+  def encode(_type, value) do
     case value do
       :NaN -> <<0::1, 255, 1::1, 0::22>>
       :inf -> <<0::1, 255, 0::23>>

@@ -18,7 +18,7 @@ defmodule PgEx.Connection do
     socket: port | nil,
     config: Keyword.t,
     timeout: non_neg_integer,
-    types: %{required(non_neg_integer) => module} |  nil,
+    types: %{required(non_neg_integer) => {non_neg_integer, module}} |  nil,
   }
 
   @type received :: {byte, binary | nil} | {:error, :inet.posix}

@@ -21,7 +21,7 @@ defmodule PgEx.Parser do
     read_row(decoders, row, [nil | columns])
   end
 
-  def read_row([decoder | decoders], <<length::big-32, row::binary>>, columns) do
+  def read_row([{_type, decoder} | decoders], <<length::big-32, row::binary>>, columns) do
     {value, row} = :erlang.split_binary(row, length)
     # TODO: Handle :error return. This is hard to test until we have custom types, so...
     column = decoder.decode(length, value)

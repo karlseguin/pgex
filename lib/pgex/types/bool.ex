@@ -1,7 +1,7 @@
 defmodule PgEx.Types.Bool do
   use PgEx.Types.Bin
 
-  def encode(value) do
+  def encode(_type, value) do
     case value do
       true -> <<1>>
       false -> <<0>>

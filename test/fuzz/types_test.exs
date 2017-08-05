@@ -29,7 +29,7 @@
 defmodule PgEx.Tests.Fuzz.Types do
   use PgEx.Tests.Base
 
-  @columns [:bool, :int2, :int4, :int8, :uuid, :text, :float4, :float8, :bool_array, :int2_array, :int4_array, :int8_array, :uuid_array, :text_array, :float4_array, :float8_array]
+  @columns [:bool, :int2, :int4, :int8, :uuid, :text, :float4, :float8, :bool_array, :int2_array, :int4_array, :int8_array, :uuid_array, :float4_array, :float8_array]
 
   test "fuzz the good" do
     for _ <- (1..100) do
@@ -44,7 +44,7 @@ defmodule PgEx.Tests.Fuzz.Types do
   end
 
   defp insert_rows() do
-    assert PgEx.query!("truncate table fuzz", []).affected == :truncate  #TODO: use a named prepared statement here
+    assert PgEx.query!("truncate table fuzz", []).affected == 0  #TODO: use a named prepared statement here
 
     number_of_rows = rand(10)
     Enum.reduce((1..number_of_rows), %{}, fn id, rows ->
@@ -85,18 +85,33 @@ defmodule PgEx.Tests.Fuzz.Types do
 
   defp assert_row(id, row) do
     row = Enum.filter(row, fn {_column, value} -> value end)
-    for {column, value} <- row do
-      {:ok, result} = PgEx.query("select id, #{column} from fuzz where #{column} = $1 and id = $2", [value, id])
+    for {column, expected} <- row do
+      {:ok, result} = PgEx.query("select id, #{column} from fuzz where #{column} = $1 and id = $2", [expected, id])
       assert result.affected == 1
       [[actual_id, actual_value]] = result.rows
 
       assert actual_id == id
-      cond do
-        value in [:NaN, :inf, :"-inf"] -> assert actual_value == value
-        column in ["float4", "float8"] -> assert_in_delta actual_value, value, 0.0000001 # not sure what this delta should be
-        true -> assert actual_value == value
-      end
+      assert_value(column, actual_value, expected)
     end
+  end
+
+  defp assert_value(_column, actual, expected) when expected in [:NaN, :inf, :"-inf", nil] do
+    assert actual == expected
+  end
+
+  defp assert_value(column, actual, expected) when column in ["float4", "float8"] do
+     assert_in_delta(actual, expected, 0.0000001) # not sure what this delta should be
+  end
+
+  defp assert_value(column, actual, expected) when column in ["float4_array", "float8_array"] do
+    zipped = Enum.zip(List.flatten(actual), List.flatten(expected))
+    for {actual, expected} <- zipped do
+      assert_value("float4", actual, expected)
+    end
+  end
+
+  defp assert_value(_column, actual, expected) do
+     assert actual == expected
   end
 
   # pick some random rows, select all null columns (could be none) and assert_nulls
@@ -137,12 +152,11 @@ defmodule PgEx.Tests.Fuzz.Types do
   defp create_value(:int8_array), do: create_array(:int8)
   defp create_value(:text_array), do: create_array(:text)
   defp create_value(:float4_array), do: create_array(:float4)
-  defp create_value(:float4_array), do: create_array(:float4)
   defp create_value(:float8_array), do: create_array(:float8)
   defp create_value(:uuid_array), do: create_array(:uuid)
 
   def create_array(type) do
-    sizes = Enum.map(1..rand(5), fn _ -> rand(5) end)
+    sizes = Enum.map(1..rand(3), fn _ -> rand(3) end)
     build_dimensions(sizes, type)
   end
 
@@ -150,7 +164,7 @@ defmodule PgEx.Tests.Fuzz.Types do
     Enum.map((1..size), fn _ ->
       case rand(10) == 1 do
         true -> nil
-        false -> create_value(type) 
+        false -> create_value(type)
       end
     end)
   end
@@ -158,7 +172,7 @@ defmodule PgEx.Tests.Fuzz.Types do
     build_dimension(size, sizes, type, [])
   end
 
-  defp build_dimension(0, _sizes, type, arr), do: arr
+  defp build_dimension(0, _sizes, _type, arr), do: arr
   defp build_dimension(n, sizes, type, arr) do
     arr = [build_dimensions(sizes, type) | arr]
     build_dimension(n - 1, sizes, type, arr)

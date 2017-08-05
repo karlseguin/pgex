@@ -113,11 +113,11 @@ defmodule PgEx.Connection.Prepared do
 
   defp do_extract_column_info(types, data, columns, decoders, formats) do
     {name, <<_t::big-32, _c::big-16, type::big-32, _z::big-64, rest::binary>>} = Parser.read_string(data)
-    decoder = Map.get(types, type, PgEx.Types.GenericText)
+    decoder = Map.get(types, type, {0, PgEx.Types.GenericText})
 
     columns = [name | columns]
     decoders = [decoder | decoders]
-    formats = <<formats::binary, decoder.format()::binary>>
+    formats = <<formats::binary, elem(decoder, 1).format()::binary>>
     do_extract_column_info(types, rest, columns, decoders, formats)
   end
 
@@ -140,9 +140,9 @@ defmodule PgEx.Connection.Prepared do
   end
 
   defp do_extract_parameter_info(types, <<type::big-32, rest::binary>>, encoders, formats) do
-    encoder = Map.get(types, type, PgEx.Types.GenericText)
+    encoder = Map.get(types, type, {0, PgEx.Types.GenericText})
     encoders = [encoder | encoders]
-    formats = <<formats::binary, encoder.format()::binary>>
+    formats = <<formats::binary, elem(encoder, 1).format()::binary>>
     do_extract_parameter_info(types, rest, encoders, formats)
   end
 
@@ -171,8 +171,8 @@ defmodule PgEx.Connection.Prepared do
     bind_values(encoders, values, length + 4, [data, <<255, 255, 255, 255>>])
   end
 
-  defp bind_values([encoder | encoders], [value | values], length, data) do
-    case encoder.encode(value) do
+  defp bind_values([{type, encoder} | encoders], [value | values], length, data) do
+    case encoder.encode(type, value) do
       :error -> {:error, "failed to convert #{inspect value} to #{encoder.name()}"}
       encoded ->
         size = :erlang.iolist_size(encoded)
@@ -232,7 +232,7 @@ defmodule PgEx.Connection.Prepared do
     end
   end
 
-  defp extract_rows_from_tag(<<"TRUNCATE TABLE", 0>>), do: :truncate
+  defp extract_rows_from_tag(<<"TRUNCATE TABLE", 0>>), do: 0
 
   defp extract_rows_from_tag(_unknown) do
     -1

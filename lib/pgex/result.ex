@@ -12,7 +12,7 @@ defmodule PgEx.Result do
     it: [any],
     rows: [any],
     columns: [String.t],
-    affected: non_neg_integer | :truncate,
+    affected: non_neg_integer,
   }
 
   @doc false
