@@ -1,8 +1,6 @@
 defmodule PgEx.Types.Float4 do
   use PgEx.Types.Bin
 
-  def name(), do: "float4"
-
   def encode(value) when is_number(value), do: <<value::float-32>>
   def encode(value) do
     case value do

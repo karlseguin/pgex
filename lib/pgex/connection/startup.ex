@@ -77,7 +77,14 @@ defmodule PgEx.Connection.Startup do
       25 => Types.Text,
       700 => Types.Float4,
       701 => Types.Float8,
+      1000 => Types.Bool.Array,
+      1005 => Types.Int2.Array,
+      1007 => Types.Int4.Array,
+      1009 => Types.Text.Array,
+      1021 => Types.Float4.Array,
+      1022 => Types.Float4.Array,
       2950 => Types.UUID,
+      2951 => Types.UUID.Array,
     }
     {:ok, %Connection{conn | types: types}}
   end

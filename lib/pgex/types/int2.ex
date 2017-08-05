@@ -1,8 +1,6 @@
 defmodule PgEx.Types.Int2 do
   use PgEx.Types.Bin
 
-  def name(), do: "int2"
-
   def encode(value) when is_integer(value) do
     case value >= -32768 && value <= 32767 do
       true -> <<value::signed-16>>

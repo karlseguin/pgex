@@ -29,7 +29,7 @@
 defmodule PgEx.Tests.Fuzz.Types do
   use PgEx.Tests.Base
 
-  @columns [:bool, :int2, :int4, :int8, :uuid, :text, :float4, :float8]
+  @columns [:bool, :int2, :int4, :int8, :uuid, :text, :float4, :float8, :bool_array, :int2_array, :int4_array, :int8_array, :uuid_array, :text_array, :float4_array, :float8_array]
 
   test "fuzz the good" do
     for _ <- (1..100) do
@@ -129,5 +129,38 @@ defmodule PgEx.Tests.Fuzz.Types do
 
   defp create_value(:uuid) do
     PgEx.Types.UUID.decode(16, :crypto.strong_rand_bytes(16))
+  end
+
+  defp create_value(:bool_array), do: create_array(:bool)
+  defp create_value(:int2_array), do: create_array(:int2)
+  defp create_value(:int4_array), do: create_array(:int4)
+  defp create_value(:int8_array), do: create_array(:int8)
+  defp create_value(:text_array), do: create_array(:text)
+  defp create_value(:float4_array), do: create_array(:float4)
+  defp create_value(:float4_array), do: create_array(:float4)
+  defp create_value(:float8_array), do: create_array(:float8)
+  defp create_value(:uuid_array), do: create_array(:uuid)
+
+  def create_array(type) do
+    sizes = Enum.map(1..rand(5), fn _ -> rand(5) end)
+    build_dimensions(sizes, type)
+  end
+
+  defp build_dimensions([size], type) do
+    Enum.map((1..size), fn _ ->
+      case rand(10) == 1 do
+        true -> nil
+        false -> create_value(type) 
+      end
+    end)
+  end
+  defp build_dimensions([size | sizes], type) do
+    build_dimension(size, sizes, type, [])
+  end
+
+  defp build_dimension(0, _sizes, type, arr), do: arr
+  defp build_dimension(n, sizes, type, arr) do
+    arr = [build_dimensions(sizes, type) | arr]
+    build_dimension(n - 1, sizes, type, arr)
   end
 end

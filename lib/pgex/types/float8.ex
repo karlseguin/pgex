@@ -1,8 +1,5 @@
 defmodule PgEx.Types.Float8 do
   use PgEx.Types.Bin
-
-  def name(), do: "float8"
-
   def encode(value) when is_number(value), do: <<value::float-64>>
   def encode(value) do
     case value do

@@ -1,8 +1,6 @@
 defmodule PgEx.Types.Int8 do
   use PgEx.Types.Bin
 
-  def name(), do: "int8"
-
   def encode(value) when is_integer(value) do
     case value >= -9223372036854775808 && value <= 9223372036854775807 do
       true -> <<value::signed-64>>
