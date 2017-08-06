@@ -8,7 +8,7 @@ defmodule PgEx.Connection do
   use GenServer
   require Logger
   alias PgEx.{Connection, Error}
-  alias PgEx.Connection.{Prepared, Startup}
+  alias PgEx.Connection.{Query, Startup}
 
   defstruct [
      :config, :socket, :timeout, :types,
@@ -79,9 +79,9 @@ defmodule PgEx.Connection do
   defp do_query({:error, _} = err, _sql, _values), do: err
 
   defp do_query_ready(conn, sql, values) do
-    with {:ok, prepared} <- Prepared.create(conn, "", sql),
+    with {:ok, prepared} <- Query.create(conn, "", sql),
          {:ok, conn} <- wait_for_ready(conn),
-         {:ok, result} <- Prepared.bind_and_execute(conn, prepared, values)
+         {:ok, result} <- Query.bind_and_execute(conn, prepared, values)
     do
       {:ok, {result, conn}}
     end

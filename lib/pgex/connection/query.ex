@@ -14,7 +14,7 @@
 # a we can in the first stage. For example, a large part of the Bind message
 # can be constructed in the first stage. Doing it here means slightly uglier
 # structures, but better performance when executing a statement multiple times.
-defmodule PgEx.Connection.Prepared do
+defmodule PgEx.Connection.Query do
   @moduledoc false
 
   alias __MODULE__, as: Prepared
